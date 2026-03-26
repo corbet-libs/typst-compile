@@ -1,0 +1,14 @@
+{
+  "name": "typst-compile-service",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@myriaddreamin/typst.ts": "^0.6.0",
+    "@myriaddreamin/typst-ts-web-compiler": "^0.6.0",
+    "@myriaddreamin/typst-ts-renderer": "^0.6.0"
+  }
+}
