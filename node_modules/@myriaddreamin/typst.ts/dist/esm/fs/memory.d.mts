@@ -1,0 +1,15 @@
+import { FsAccessModel } from '../internal.types.mjs';
+import { WritableAccessModel } from './index.mjs';
+export declare class MemoryAccessModel implements FsAccessModel, WritableAccessModel {
+    mTimes: Map<string, Date | undefined>;
+    mData: Map<string, Uint8Array | undefined>;
+    constructor();
+    reset(): void;
+    insertFile(path: string, data: Uint8Array, mtime: Date): void;
+    removeFile(path: string): void;
+    getMTime(path: string): Date | undefined;
+    isFile(): boolean | undefined;
+    getRealPath(path: string): string | undefined;
+    readAll(path: string): Uint8Array | undefined;
+}
+//# sourceMappingURL=memory.d.mts.map

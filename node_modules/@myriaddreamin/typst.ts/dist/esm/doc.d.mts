@@ -1,0 +1,76 @@
+import { PageInfo, Rect, TransformMatrix } from './internal.types.mjs';
+import { RenderOptions } from './options.render.mjs';
+import { RenderSession, TypstRenderer } from './renderer.mjs';
+export interface LayoutContext {
+}
+export interface PageView {
+    pages: PageInfo[];
+}
+export interface RenderPiece {
+    pageOffset?: number;
+    invisible?: boolean;
+    at?: Element;
+    window?: Rect;
+    ts?: TransformMatrix;
+}
+export interface TypstDocumentProps {
+    plugin: TypstRenderer;
+    shadowRoot: Element;
+    renderMode?: 'svg' | 'svg-group' | 'canvas';
+    session?: RenderSession;
+    layoutPages?(doc: TypstDocument, before: PageView): Promise<RenderPiece[]>;
+}
+/**
+ * The options for manipulating the Typst document in the session.
+ */
+interface DocumentDataChangement {
+    /**
+     * The action to manipulate the data.
+     * @description `reset-doc`: reset the data to the initial state.
+     * @description `merge-doc`: merge the data to the current state.
+     */
+    action: 'reset-doc' | 'merge-doc';
+    /**
+     * Opaque data to manipulate the Typst document from server.
+     */
+    data: Uint8Array;
+}
+/**
+ * The options for manipulating the Typst document in the session.
+ */
+interface DocumentViewportChangement {
+    /**
+     * Change the viewport of the Typst document.
+     */
+    action: 'viewport-change';
+}
+/**
+ * The options for manipulating the Typst document in the session.
+ */
+export type DocumentChangement = DocumentDataChangement | DocumentViewportChangement;
+export interface LayoutSvgPageOptions {
+    wrapG?(g: [Rect, SVGGElement]): [Rect, SVGGElement];
+}
+export interface TypstDocument {
+    shadowRoot: Element;
+    session: RenderSession;
+    onSessionReady(): Promise<RenderSession>;
+    changeLayout(layoutSelector: Record<string, any>): void;
+    addChangements(change: DocumentChangement[]): void;
+    addViewportChange(): void;
+    renderPieces(pieces: RenderPiece[]): Promise<void>;
+    dispose(): void;
+}
+export declare class TypstDocument implements TypstDocument {
+    private props;
+    session: RenderSession;
+    private sessionReady;
+    private disposeSession;
+    constructor(props: RenderOptions<TypstDocumentProps>);
+    static layoutPagesFullMode(doc: TypstDocument): Promise<RenderPiece[]>;
+    static layoutSvgPagesPartialMode(doc: TypstDocument, before: PageView): Promise<RenderPiece[]>;
+    static layoutSvgPages(options: LayoutSvgPageOptions): (doc: TypstDocument, before: PageView) => Promise<RenderPiece[]>;
+    private init;
+}
+export {};
+//# sourceMappingURL=doc.d.mts.map

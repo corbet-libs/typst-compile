@@ -1,0 +1,102 @@
+import type { RenderSession } from '../../renderer.mjs';
+import { TypstCancellationToken } from './typst-cancel.mjs';
+export interface ContainerDOMState {
+    width: number;
+    height: number;
+    window: {
+        innerWidth: number;
+        innerHeight: number;
+    };
+    boundingRect: {
+        left: number;
+        top: number;
+        right: number;
+    };
+}
+export type RenderMode = 'svg' | 'canvas' | 'dom';
+export declare enum PreviewMode {
+    Doc = 0,
+    Slide = 1
+}
+export interface Options {
+    hookedElem: HTMLElement;
+    kModule: RenderSession;
+    renderMode?: RenderMode;
+    previewMode?: PreviewMode;
+    isContentPreview?: boolean;
+    sourceMapping?: boolean;
+    retrieveDOMState?: () => ContainerDOMState;
+}
+export type GConstructor<T = {}> = new (...args: any[]) => T;
+interface TypstDocumentFacade {
+    rescale(): void;
+    rerender(): Promise<void>;
+    postRender(): void;
+}
+export declare class TypstDocumentContext<O = any> {
+    hookedElem: HTMLElement;
+    kModule: RenderSession;
+    opts: O;
+    modes: [string, TypstDocumentFacade][];
+    partialRendering: boolean;
+    renderMode: RenderMode;
+    r: TypstDocumentFacade;
+    previewMode: PreviewMode;
+    isContentPreview: boolean;
+    isMixinOutline: boolean;
+    backgroundColor: string;
+    pageColor: string;
+    pixelPerPt: number;
+    retrieveDOMState: () => ContainerDOMState;
+    isRendering: boolean;
+    moduleInitialized: boolean;
+    patchQueue: [string, string][];
+    disposeList: (() => void)[];
+    canvasRenderCToken?: TypstCancellationToken;
+    currentRealScale: number;
+    currentScaleRatio: number;
+    vpTimeout: any;
+    sampledRenderTime: number;
+    partialRenderPage: number;
+    outline: any;
+    cursorPosition?: [number, number, number];
+    cachedDOMState: ContainerDOMState;
+    constructor(opts: Options & O);
+    reset(): void;
+    dispose(): void;
+    static derive(ctx: any, mode: string): any;
+    registerMode(mode: any): void;
+    private installCtrlWheelHandler;
+    getSvgScaleRatio(): number;
+    private processQueue;
+    private triggerUpdate;
+    private postprocessChanges;
+    addChangement(change: [string, string]): void;
+    addViewportChange(): void;
+}
+export interface TypstDocument<T> {
+    impl: T;
+    kModule: RenderSession;
+    dispose(): void;
+    reset(): void;
+    addChangement(change: [string, string]): void;
+    addViewportChange(): void;
+    setPageColor(color: string): void;
+    setPartialRendering(partialRendering: boolean): void;
+    setCursor(page: number, x: number, y: number): void;
+    setPartialPageNumber(page: number): boolean;
+    getPartialPageNumber(): number;
+    setOutineData(outline: any): void;
+}
+export declare function provideDoc<T extends TypstDocumentContext>(Base: GConstructor<T>): new (options: Options & T['opts']) => TypstDocument<T>;
+export declare function composeDoc<TBase extends GConstructor, F1>(Base: TBase, f1: (base: TBase) => F1): TBase & F1;
+export declare function composeDoc<TBase extends GConstructor, F1, F2>(Base: TBase, f1: (base: TBase) => F1, f2: (base: F1) => F2): TBase & F1 & F2;
+export declare function composeDoc<TBase extends GConstructor, F1, F2, F3>(Base: TBase, f1: (base: TBase) => F1, f2: (base: F1) => F2, f3: (base: F2) => F3): TBase & F1 & F2 & F3;
+export declare function composeDoc<TBase extends GConstructor, F1, F2, F3, F4>(Base: TBase, f1: (base: TBase) => F1, f2: (base: F1) => F2, f3: (base: F2) => F3, f4: (base: F3) => F4): TBase & F1 & F2 & F3 & F4;
+export declare function composeDoc<TBase extends GConstructor, F1, F2, F3, F4, F5>(Base: TBase, f1: (base: TBase) => F1, f2: (base: F1) => F2, f3: (base: F2) => F3, f4: (base: F3) => F4, f5: (base: F4) => F5): TBase & F1 & F2 & F3 & F4 & F5;
+export declare function composeDoc<TBase extends GConstructor, F1, F2, F3, F4, F5, F6>(Base: TBase, f1: (base: TBase) => F1, f2: (base: F1) => F2, f3: (base: F2) => F3, f4: (base: F3) => F4, f5: (base: F4) => F5, f6: (base: F5) => F6): TBase & F1 & F2 & F3 & F4 & F5 & F6;
+export declare function composeDoc<TBase extends GConstructor, F1, F2, F3, F4, F5, F6, F7>(Base: TBase, f1: (base: TBase) => F1, f2: (base: F1) => F2, f3: (base: F2) => F3, f4: (base: F3) => F4, f5: (base: F4) => F5, f6: (base: F5) => F6, f7: (base: F6) => F7): TBase & F1 & F2 & F3 & F4 & F5 & F6 & F7;
+export declare function composeDoc<TBase extends GConstructor, F1, F2, F3, F4, F5, F6, F7, F8>(Base: TBase, f1: (base: TBase) => F1, f2: (base: F1) => F2, f3: (base: F2) => F3, f4: (base: F3) => F4, f5: (base: F4) => F5, f6: (base: F5) => F6, f7: (base: F6) => F7, f8: (base: F7) => F8): TBase & F1 & F2 & F3 & F4 & F5 & F6 & F7 & F8;
+export declare function composeDoc<TBase extends GConstructor, F1, F2, F3, F4, F5, F6, F7, F8, F9>(Base: TBase, f1: (base: TBase) => F1, f2: (base: F1) => F2, f3: (base: F2) => F3, f4: (base: F3) => F4, f5: (base: F4) => F5, f6: (base: F5) => F6, f7: (base: F6) => F7, f8: (base: F7) => F8, f9: (base: F8) => F9): TBase & F1 & F2 & F3 & F4 & F5 & F6 & F7 & F8 & F9;
+export {};
+//# sourceMappingURL=typst-doc.d.mts.map

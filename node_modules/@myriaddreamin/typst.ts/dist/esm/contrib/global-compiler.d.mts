@@ -1,0 +1,6 @@
+import type { InitOptions } from '../options.init.mjs';
+import type { TypstCompiler } from '../compiler.mjs';
+export declare function getGlobalCompiler(): TypstCompiler | undefined;
+export declare function createGlobalCompiler(creator: () => TypstCompiler, initOptions?: Partial<InitOptions>): Promise<TypstCompiler>;
+export declare function withGlobalCompiler(creator: () => TypstCompiler, initOptions: Partial<InitOptions> | undefined, resolve: (compiler: TypstCompiler) => void, reject?: (err: any) => void): void;
+//# sourceMappingURL=global-compiler.d.mts.map
