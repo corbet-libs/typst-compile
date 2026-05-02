@@ -17,8 +17,20 @@ const path = require('path');
 let compiler = null;
 let renderer = null;
 let initPromise = null;
+let compileQueue = Promise.resolve();
+let activeCompiles = 0;
+let queuedCompiles = 0;
+let sourceSeq = 0;
 
 const FONT_DIR = path.join(__dirname, 'fonts');
+const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES || 1024 * 1024);
+
+class HttpError extends Error {
+    constructor(status, message) {
+        super(message);
+        this.status = status;
+    }
+}
 
 async function init() {
     if (compiler) return;
@@ -53,100 +65,163 @@ async function init() {
     await initPromise;
 }
 
+function nextSourcePath(prefix) {
+    sourceSeq = (sourceSeq + 1) % 1000000;
+    return `/${prefix}-${Date.now()}-${sourceSeq}.typ`;
+}
+
+function withCompilerLock(fn) {
+    queuedCompiles += 1;
+    const run = compileQueue.then(async () => {
+        queuedCompiles -= 1;
+        activeCompiles += 1;
+        try {
+            return await fn();
+        } finally {
+            activeCompiles -= 1;
+        }
+    });
+    compileQueue = run.catch(() => {});
+    return run;
+}
+
 function parseBody(req) {
     return new Promise((resolve, reject) => {
         const chunks = [];
-        req.on('data', chunk => chunks.push(chunk));
+        let total = 0;
+        let settled = false;
+
+        const fail = (err) => {
+            if (settled) return;
+            settled = true;
+            reject(err);
+            req.destroy();
+        };
+
+        req.on('data', chunk => {
+            total += chunk.length;
+            if (total > MAX_BODY_BYTES) {
+                return fail(new HttpError(413, `Request body too large; max ${MAX_BODY_BYTES} bytes`));
+            }
+            chunks.push(chunk);
+        });
         req.on('end', () => {
+            if (settled) return;
+            settled = true;
             try { resolve(JSON.parse(Buffer.concat(chunks).toString())); }
             catch { reject(new Error('Invalid JSON')); }
+        });
+        req.on('error', err => {
+            if (settled) return;
+            settled = true;
+            reject(err);
         });
     });
 }
 
 async function handleCompile(req, res) {
-    await init();
-    const { source, format = 'svg' } = await parseBody(req);
-    if (!source) return send(res, 400, { error: 'Missing "source" in body' });
-
     try {
-        compiler.addSource('/main.typ', source);
+        const { source, format = 'svg' } = await parseBody(req);
+        if (!source || typeof source !== 'string') return send(res, 400, { error: 'Missing "source" in body' });
+        if (format !== 'svg' && format !== 'pdf') return send(res, 400, { error: 'format must be "svg" or "pdf"' });
 
-        if (format === 'pdf') {
-            const { result, diagnostics } = await compiler.compile({ mainFilePath: '/main.typ', format: 'pdf' });
+        const output = await withCompilerLock(async () => {
+            await init();
+            const mainPath = nextSourcePath('main');
+            compiler.addSource(mainPath, source);
+
+            if (format === 'pdf') {
+                const { result, diagnostics } = await compiler.compile({ mainFilePath: mainPath, format: 'pdf' });
+                if (!result) {
+                    const errors = diagnostics?.filter(d => d.severity === 'error').map(d => d.message) || ['Compilation failed'];
+                    return { kind: 'json', status: 422, body: { error: 'Compilation failed', diagnostics: errors } };
+                }
+                return { kind: 'pdf', body: Buffer.from(result) };
+            }
+
+            const { result, diagnostics } = await compiler.compile({ mainFilePath: mainPath, format: 'vector' });
             if (!result) {
                 const errors = diagnostics?.filter(d => d.severity === 'error').map(d => d.message) || ['Compilation failed'];
-                return send(res, 422, { error: 'Compilation failed', diagnostics: errors });
+                return { kind: 'json', status: 422, body: { error: 'Compilation failed', diagnostics: errors } };
             }
+            const svg = await renderer.renderSvg({ artifactContent: result, format: 'vector' });
+            const pageCount = (svg.match(/<svg[^>]*class="typst-page"/g) || []).length || 1;
+            return { kind: 'json', status: 200, body: { svg, pages: pageCount } };
+        });
+
+        if (output.kind === 'pdf') {
             res.writeHead(200, {
                 'Content-Type': 'application/pdf',
                 'Access-Control-Allow-Origin': '*',
             });
-            res.end(Buffer.from(result));
-        } else {
-            const { result, diagnostics } = await compiler.compile({ mainFilePath: '/main.typ', format: 'vector' });
-            if (!result) {
-                const errors = diagnostics?.filter(d => d.severity === 'error').map(d => d.message) || ['Compilation failed'];
-                return send(res, 422, { error: 'Compilation failed', diagnostics: errors });
-            }
-            const svg = await renderer.renderSvg({ artifactContent: result, format: 'vector' });
-            const pageCount = (svg.match(/<svg[^>]*class="typst-page"/g) || []).length || 1;
-            send(res, 200, { svg, pages: pageCount });
+            return res.end(output.body);
         }
+        return send(res, output.status, output.body);
     } catch (e) {
+        if (e instanceof HttpError) {
+            return send(res, e.status, { error: e.message });
+        }
         send(res, 500, { error: e.message });
     }
 }
 
 async function handleMeasure(req, res) {
-    await init();
-    const { items, format } = await parseBody(req);
-    if (!Array.isArray(items)) return send(res, 400, { error: 'Missing "items" array' });
-
     try {
-        const fontSize = format?.fontSize ?? 10.5;
-        const font = format?.font || 'Archivo';
-        const marginLeft = format?.marginLeft ?? 15;
-        const marginRight = format?.marginRight ?? 15;
-        const pageSize = format?.pageSize || 'a4';
-        const pageWidth = pageSize === 'us-letter' ? '215.9mm' : '210mm';
+        const { items, format } = await parseBody(req);
+        if (!Array.isArray(items)) return send(res, 400, { error: 'Missing "items" array' });
 
-        const lines = [
-            `#set page(width: ${pageWidth}, margin: (top: 0pt, bottom: 0pt, left: ${marginLeft}mm, right: ${marginRight}mm), height: auto)`,
-            `#set text(font: "${font}", size: ${fontSize}pt, fill: black, top-edge: "cap-height", bottom-edge: "baseline")`,
-            `#set par(leading: 0.6em, justify: false, spacing: 0pt)`,
-            '#set block(above: 0pt, below: 0pt)',
-            '',
-            '#let cv-bullet() = box(width: 10pt)',
-            '',
-            'X',
-        ];
+        const measured = await withCompilerLock(async () => {
+            await init();
+            const fontSize = format?.fontSize ?? 10.5;
+            const font = format?.font || 'Archivo';
+            const marginLeft = format?.marginLeft ?? 15;
+            const marginRight = format?.marginRight ?? 15;
+            const pageSize = format?.pageSize || 'a4';
+            const pageWidth = pageSize === 'us-letter' ? '215.9mm' : '210mm';
 
-        for (const item of items) {
-            lines.push('', '#pagebreak()', item.typst);
-        }
+            const lines = [
+                `#set page(width: ${pageWidth}, margin: (top: 0pt, bottom: 0pt, left: ${marginLeft}mm, right: ${marginRight}mm), height: auto)`,
+                `#set text(font: "${font}", size: ${fontSize}pt, fill: black, top-edge: "cap-height", bottom-edge: "baseline")`,
+                `#set par(leading: 0.6em, justify: false, spacing: 0pt)`,
+                '#set block(above: 0pt, below: 0pt)',
+                '',
+                '#let cv-bullet() = box(width: 10pt)',
+                '',
+                'X',
+            ];
 
-        compiler.addSource('/ruler.typ', lines.join('\n'));
-        const { result } = await compiler.compile({ mainFilePath: '/ruler.typ', format: 'vector' });
-        if (!result) return send(res, 422, { error: 'Ruler compilation failed' });
+            for (const item of items) {
+                lines.push('', '#pagebreak()', item.typst);
+            }
 
-        const svg = await renderer.renderSvg({ artifactContent: result, format: 'vector' });
-        const heights = [];
-        const re = /height="([^"]+)pt"/g;
-        let m;
-        while ((m = re.exec(svg)) !== null) heights.push(parseFloat(m[1]));
+            const rulerPath = nextSourcePath('ruler');
+            compiler.addSource(rulerPath, lines.join('\n'));
+            const { result } = await compiler.compile({ mainFilePath: rulerPath, format: 'vector' });
+            if (!result) return null;
 
-        const refHeight = heights[0] || 1;
-        const measured = {};
-        for (let i = 0; i < items.length; i++) {
-            const pageHeight = heights[i + 1];
-            measured[items[i].id] = pageHeight !== undefined
-                ? Math.max(1, Math.round(pageHeight / refHeight))
-                : 1;
-        }
+            const svg = await renderer.renderSvg({ artifactContent: result, format: 'vector' });
+            const heights = [];
+            const re = /height="([^"]+)pt"/g;
+            let m;
+            while ((m = re.exec(svg)) !== null) heights.push(parseFloat(m[1]));
 
+            const refHeight = heights[0] || 1;
+            const out = {};
+            for (let i = 0; i < items.length; i++) {
+                const pageHeight = heights[i + 1];
+                out[items[i].id] = pageHeight !== undefined
+                    ? Math.max(1, Math.round(pageHeight / refHeight))
+                    : 1;
+            }
+            return out;
+        });
+
+        if (!measured) return send(res, 422, { error: 'Ruler compilation failed' });
         send(res, 200, measured);
     } catch (e) {
+        if (e instanceof HttpError) {
+            return send(res, e.status, { error: e.message });
+        }
         send(res, 500, { error: e.message });
     }
 }
@@ -171,7 +246,12 @@ const server = http.createServer(async (req, res) => {
 
     try {
         if (req.method === 'GET' && req.url === '/health') {
-            return send(res, 200, { status: 'ok', compiler: !!compiler });
+            return send(res, 200, {
+                status: 'ok',
+                compiler: !!compiler,
+                activeCompiles,
+                queuedCompiles,
+            });
         }
         if (req.method === 'POST' && req.url === '/compile') {
             return await handleCompile(req, res);
