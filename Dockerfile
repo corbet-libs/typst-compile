@@ -11,6 +11,7 @@ COPY fonts/ ./fonts/
 
 # Copy server
 COPY server.js ./
+COPY cache.js ./
 
 # Koyeb exposes PORT env var
 EXPOSE 8000

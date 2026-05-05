@@ -13,6 +13,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { compileCacheKey, measureCacheKey, readPositiveInt } = require('./cache');
 
 let compiler = null;
 let renderer = null;
@@ -24,6 +25,12 @@ let sourceSeq = 0;
 
 const FONT_DIR = path.join(__dirname, 'fonts');
 const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES || 1024 * 1024);
+const COMPILE_CACHE_MAX_ENTRIES = readPositiveInt('COMPILE_CACHE_MAX_ENTRIES', 32);
+const COMPILE_CACHE_MAX_BYTES = readPositiveInt('COMPILE_CACHE_MAX_BYTES', 64 * 1024 * 1024);
+const MEASURE_CACHE_MAX_ENTRIES = readPositiveInt('MEASURE_CACHE_MAX_ENTRIES', 128);
+let compileCacheBytes = 0;
+const compileCache = new Map();
+const measureCache = new Map();
 
 class HttpError extends Error {
     constructor(status, message) {
@@ -85,6 +92,56 @@ function withCompilerLock(fn) {
     return run;
 }
 
+function estimateJsonCompileBytes(body) {
+    return Buffer.byteLength(body.svg || '', 'utf8') + 128;
+}
+
+function getCompileCache(key) {
+    const hit = compileCache.get(key);
+    if (!hit) return null;
+    compileCache.delete(key);
+    compileCache.set(key, hit);
+    return hit;
+}
+
+function setCompileCache(key, entry) {
+    if (COMPILE_CACHE_MAX_ENTRIES === 0 || COMPILE_CACHE_MAX_BYTES === 0) return;
+    if (entry.bytes > COMPILE_CACHE_MAX_BYTES) return;
+    const existing = compileCache.get(key);
+    if (existing) {
+        compileCacheBytes -= existing.bytes;
+        compileCache.delete(key);
+    }
+    compileCache.set(key, entry);
+    compileCacheBytes += entry.bytes;
+    while (compileCache.size > COMPILE_CACHE_MAX_ENTRIES || compileCacheBytes > COMPILE_CACHE_MAX_BYTES) {
+        const oldestKey = compileCache.keys().next().value;
+        if (!oldestKey) break;
+        const oldest = compileCache.get(oldestKey);
+        compileCacheBytes -= oldest?.bytes || 0;
+        compileCache.delete(oldestKey);
+    }
+}
+
+function getMeasureCache(key) {
+    const hit = measureCache.get(key);
+    if (!hit) return null;
+    measureCache.delete(key);
+    measureCache.set(key, hit);
+    return hit;
+}
+
+function setMeasureCache(key, value) {
+    if (MEASURE_CACHE_MAX_ENTRIES === 0) return;
+    if (measureCache.has(key)) measureCache.delete(key);
+    measureCache.set(key, value);
+    while (measureCache.size > MEASURE_CACHE_MAX_ENTRIES) {
+        const oldestKey = measureCache.keys().next().value;
+        if (!oldestKey) break;
+        measureCache.delete(oldestKey);
+    }
+}
+
 function parseBody(req) {
     return new Promise((resolve, reject) => {
         const chunks = [];
@@ -119,11 +176,46 @@ function parseBody(req) {
     });
 }
 
+function buildMeasureSource(items, format) {
+    const fontSize = format?.fontSize ?? 10.5;
+    const font = format?.font || 'Archivo';
+    const marginLeft = format?.marginLeft ?? 15;
+    const marginRight = format?.marginRight ?? 15;
+    const pageSize = format?.pageSize || 'a4';
+    const pageWidth = pageSize === 'us-letter' ? '215.9mm' : '210mm';
+
+    const lines = [
+        `#set page(width: ${pageWidth}, margin: (top: 0pt, bottom: 0pt, left: ${marginLeft}mm, right: ${marginRight}mm), height: auto)`,
+        `#set text(font: "${font}", size: ${fontSize}pt, fill: black, top-edge: "cap-height", bottom-edge: "baseline")`,
+        `#set par(leading: 0.6em, justify: false, spacing: 0pt)`,
+        '#set block(above: 0pt, below: 0pt)',
+        '',
+        '#let cv-bullet() = box(width: 10pt)',
+        '',
+        'X',
+    ];
+
+    for (const item of items) {
+        lines.push('', '#pagebreak()', item.typst);
+    }
+
+    return lines.join('\n');
+}
+
 async function handleCompile(req, res) {
     try {
         const { source, format = 'svg' } = await parseBody(req);
         if (!source || typeof source !== 'string') return send(res, 400, { error: 'Missing "source" in body' });
         if (format !== 'svg' && format !== 'pdf') return send(res, 400, { error: 'format must be "svg" or "pdf"' });
+
+        const cacheKey = compileCacheKey(source, format);
+        const cached = getCompileCache(cacheKey);
+        if (cached) {
+            if (cached.kind === 'pdf') {
+                return sendPdf(res, cached.body, 'hit');
+            }
+            return send(res, 200, cached.body, { 'X-CV-Compile-Cache': 'hit' });
+        }
 
         const output = await withCompilerLock(async () => {
             await init();
@@ -136,7 +228,9 @@ async function handleCompile(req, res) {
                     const errors = diagnostics?.filter(d => d.severity === 'error').map(d => d.message) || ['Compilation failed'];
                     return { kind: 'json', status: 422, body: { error: 'Compilation failed', diagnostics: errors } };
                 }
-                return { kind: 'pdf', body: Buffer.from(result) };
+                const pdf = Buffer.from(result);
+                setCompileCache(cacheKey, { kind: 'pdf', body: pdf, bytes: pdf.byteLength });
+                return { kind: 'pdf', body: pdf, cacheStatus: 'miss' };
             }
 
             const { result, diagnostics } = await compiler.compile({ mainFilePath: mainPath, format: 'vector' });
@@ -146,17 +240,15 @@ async function handleCompile(req, res) {
             }
             const svg = await renderer.renderSvg({ artifactContent: result, format: 'vector' });
             const pageCount = (svg.match(/<svg[^>]*class="typst-page"/g) || []).length || 1;
-            return { kind: 'json', status: 200, body: { svg, pages: pageCount } };
+            const body = { svg, pages: pageCount };
+            setCompileCache(cacheKey, { kind: 'json', body, bytes: estimateJsonCompileBytes(body) });
+            return { kind: 'json', status: 200, body, cacheStatus: 'miss' };
         });
 
         if (output.kind === 'pdf') {
-            res.writeHead(200, {
-                'Content-Type': 'application/pdf',
-                'Access-Control-Allow-Origin': '*',
-            });
-            return res.end(output.body);
+            return sendPdf(res, output.body, output.cacheStatus);
         }
-        return send(res, output.status, output.body);
+        return send(res, output.status, output.body, output.cacheStatus ? { 'X-CV-Compile-Cache': output.cacheStatus } : {});
     } catch (e) {
         if (e instanceof HttpError) {
             return send(res, e.status, { error: e.message });
@@ -170,32 +262,15 @@ async function handleMeasure(req, res) {
         const { items, format } = await parseBody(req);
         if (!Array.isArray(items)) return send(res, 400, { error: 'Missing "items" array' });
 
+        const source = buildMeasureSource(items, format);
+        const cacheKey = measureCacheKey(source, items);
+        const cached = getMeasureCache(cacheKey);
+        if (cached) return send(res, 200, cached, { 'X-CV-Measure-Cache': 'hit' });
+
         const measured = await withCompilerLock(async () => {
             await init();
-            const fontSize = format?.fontSize ?? 10.5;
-            const font = format?.font || 'Archivo';
-            const marginLeft = format?.marginLeft ?? 15;
-            const marginRight = format?.marginRight ?? 15;
-            const pageSize = format?.pageSize || 'a4';
-            const pageWidth = pageSize === 'us-letter' ? '215.9mm' : '210mm';
-
-            const lines = [
-                `#set page(width: ${pageWidth}, margin: (top: 0pt, bottom: 0pt, left: ${marginLeft}mm, right: ${marginRight}mm), height: auto)`,
-                `#set text(font: "${font}", size: ${fontSize}pt, fill: black, top-edge: "cap-height", bottom-edge: "baseline")`,
-                `#set par(leading: 0.6em, justify: false, spacing: 0pt)`,
-                '#set block(above: 0pt, below: 0pt)',
-                '',
-                '#let cv-bullet() = box(width: 10pt)',
-                '',
-                'X',
-            ];
-
-            for (const item of items) {
-                lines.push('', '#pagebreak()', item.typst);
-            }
-
             const rulerPath = nextSourcePath('ruler');
-            compiler.addSource(rulerPath, lines.join('\n'));
+            compiler.addSource(rulerPath, source);
             const { result } = await compiler.compile({ mainFilePath: rulerPath, format: 'vector' });
             if (!result) return null;
 
@@ -217,7 +292,8 @@ async function handleMeasure(req, res) {
         });
 
         if (!measured) return send(res, 422, { error: 'Ruler compilation failed' });
-        send(res, 200, measured);
+        setMeasureCache(cacheKey, measured);
+        send(res, 200, measured, { 'X-CV-Measure-Cache': 'miss' });
     } catch (e) {
         if (e instanceof HttpError) {
             return send(res, e.status, { error: e.message });
@@ -226,12 +302,22 @@ async function handleMeasure(req, res) {
     }
 }
 
-function send(res, status, data) {
+function send(res, status, data, extraHeaders = {}) {
     res.writeHead(status, {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
+        ...extraHeaders,
     });
     res.end(JSON.stringify(data));
+}
+
+function sendPdf(res, pdf, cacheStatus) {
+    res.writeHead(200, {
+        'Content-Type': 'application/pdf',
+        'Access-Control-Allow-Origin': '*',
+        'X-CV-Compile-Cache': cacheStatus,
+    });
+    res.end(pdf);
 }
 
 const server = http.createServer(async (req, res) => {
@@ -251,6 +337,9 @@ const server = http.createServer(async (req, res) => {
                 compiler: !!compiler,
                 activeCompiles,
                 queuedCompiles,
+                cacheEntries: compileCache.size,
+                cacheBytes: compileCacheBytes,
+                measureCacheEntries: measureCache.size,
             });
         }
         if (req.method === 'POST' && req.url === '/compile') {
