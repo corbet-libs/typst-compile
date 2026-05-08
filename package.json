@@ -4,7 +4,7 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "start": "node server.js",
+    "start": "bun server.js",
     "check": "node --check server.js",
     "test": "node --test"
   },
