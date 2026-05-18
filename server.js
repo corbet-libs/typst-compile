@@ -7,7 +7,7 @@
  * Endpoints:
  *   POST /compile  — { source, format?: "svg"|"pdf" } → compiled output
  *   POST /measure  — { items: [{ id, typst }], format? } → { id: lineCount }
- *   GET  /health   — 200 OK
+ *   GET  /health   — 200 OK (alias /healthz for cockpit probe convention)
  */
 
 const http = require('http');
@@ -331,7 +331,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     try {
-        if (req.method === 'GET' && req.url === '/health') {
+        if (req.method === 'GET' && (req.url === '/health' || req.url === '/healthz')) {
             return send(res, 200, {
                 status: 'ok',
                 compiler: !!compiler,
