@@ -1,3 +1,16 @@
+/*
+@graph
+kind: test
+nodes:
+  - typst-compile-cache-test
+summary: "node:test coverage for compileCacheKey/measureCacheKey separation and readPositiveInt fallbacks (including zero meaning disabled)."
+links:
+  implementation:
+    - typst-compile-cache
+  suite:
+    - typst-compile-cache-suite
+@endgraph
+*/
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const { compileCacheKey, measureCacheKey, readPositiveInt } = require('./cache');

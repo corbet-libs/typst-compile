@@ -1,3 +1,21 @@
+/*
+@graph
+kind: implementation
+nodes:
+  - typst-compile-server
+summary: "Stateful HTTP server keeping Typst WASM warm with fonts preloaded via preloadRemoteFonts. Serialises compiles through compileQueue and tracks active/queued counters for /health. Bounded compileCache and measureCache configured via env."
+symbols:
+  - init
+  - withCompilerLock
+  - HttpError
+links:
+  idea:
+    - typst-compile-service
+  implementation:
+    - typst-compile-cache
+    - typst-compile-service-pkg
+@endgraph
+*/
 /**
  * Typst Compile Service — server-side PDF/SVG rendering.
  *

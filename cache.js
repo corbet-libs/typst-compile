@@ -1,3 +1,22 @@
+/*
+@graph
+kind: implementation
+nodes:
+  - typst-compile-cache
+summary: "Deterministic cache-key helpers (sha256 over length-prefixed parts). Measure key incorporates item IDs and order because the response object is keyed by those IDs."
+symbols:
+  - compileCacheKey
+  - measureCacheKey
+  - readPositiveInt
+links:
+  idea:
+    - typst-compile-service
+  implementation:
+    - typst-compile-server
+  test:
+    - typst-compile-cache-test
+@endgraph
+*/
 const crypto = require('crypto');
 
 function readPositiveInt(name, fallback, env = process.env) {

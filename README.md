@@ -1,3 +1,17 @@
+---
+kind: idea
+nodes:
+  - typst-compile-service
+summary: "Service contract: POST /compile, POST /measure, GET /health; bounded in-memory compile and measure caches keyed by source+format (and item ids for measure). Final PDFs are one canonical Typst document — explicit warning against split-and-stitch."
+links:
+  idea:
+    - typst-client-side-default
+  implementation:
+    - typst-compile-cache
+    - typst-compile-dotkeeper-state
+    - typst-compile-server
+    - typst-compile-service-pkg
+---
 # Typst Compile Service
 
 Koyeb-hosted HTTP renderer for headless CareerVector flows. Browser users use
