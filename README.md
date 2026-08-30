@@ -51,3 +51,10 @@ Run before deploying:
 npm run check
 npm test
 ```
+
+## Production
+
+Koyeb service `typst` follows the `master` branch of
+`corbet-labs/typst-compile` and deploys each push automatically. Its public
+readiness endpoint is
+`https://typst-corbet-consulting-992944d3.koyeb.app/health`.
