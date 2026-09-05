@@ -6,7 +6,6 @@ nodes:
 summary: "Deterministic compile cache-key helper (sha256 over length-prefixed parts)."
 symbols:
   - compileCacheKey
-  - measureCacheKey
   - readPositiveInt
 links:
   idea:
