@@ -5,6 +5,7 @@
     "": {
       "name": "typst-compile-service",
       "dependencies": {
+        "@corbet-labs/ctypst": "https://github.com/corbet-labs/ctypst/releases/download/v0.2.0/corbet-labs-ctypst-0.2.0.tgz",
         "@myriaddreamin/typst-ts-renderer": "^0.6.0",
         "@myriaddreamin/typst-ts-web-compiler": "^0.6.0",
         "@myriaddreamin/typst.ts": "^0.6.0",
@@ -12,6 +13,8 @@
     },
   },
   "packages": {
+    "@corbet-labs/ctypst": ["@corbet-labs/ctypst@https://github.com/corbet-labs/ctypst/releases/download/v0.2.0/corbet-labs-ctypst-0.2.0.tgz", { "peerDependencies": { "@myriaddreamin/typst.ts": "0.7.0-rc2" } }, "sha512-DWuSnnW1t+5u4dyQuRPeRuvgNf9lu0DmkPZkHwylP5ImjKiR3Y3EiZ+EksIOjGOpVayKGwD7Eb7k5cfjFbGLFA=="],
+
     "@myriaddreamin/typst-ts-renderer": ["@myriaddreamin/typst-ts-renderer@0.6.0", "", {}, "sha512-56Mids4E5Ob6LeEeXDedvmsVnEWnLmc1qeUOeUSruL/zI3S9QXleF/c3Os1FXwJmLuCFbWTEIq8Quh2cXlnxKw=="],
 
     "@myriaddreamin/typst-ts-web-compiler": ["@myriaddreamin/typst-ts-web-compiler@0.6.0", "", {}, "sha512-P/eIJ5RnfElj0NYzn5PI296t/IwWtgqUyyTMi5Jm5X3V5kZfskkH+LI7mSQe8tEyxwgCvxbxvFe5adinA3K8Gg=="],

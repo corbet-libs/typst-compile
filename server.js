@@ -3,7 +3,7 @@
 kind: implementation
 nodes:
   - typst-compile-server
-summary: "Stateful HTTP server keeping Typst WASM warm with fonts preloaded via preloadRemoteFonts. Serialises compiles through compileQueue and tracks active/queued counters for /health. Bounded compileCache and measureCache configured via env."
+summary: "Stateful HTTP server keeping Typst WASM warm with fonts preloaded via preloadRemoteFonts. Serialises compiles through compileQueue and tracks active/queued counters for /health. Bounded compileCache configured via env."
 symbols:
   - init
   - withCompilerLock
@@ -19,19 +19,20 @@ links:
 /**
  * Typst Compile Service — server-side PDF/SVG rendering.
  *
- * Keeps the Typst WASM compiler warm in memory. Fonts loaded once at startup
- * via the proper loadFonts API (same as client-side) for correct PDF embedding.
+ * Keeps the Typst WASM compiler warm in memory. Fonts load once at startup
+ * from the shared @corbet-labs/ctypst package (the single source tree for
+ * document font bytes) via the proper loadFonts API (same as client-side)
+ * for correct PDF embedding.
  *
  * Endpoints:
  *   POST /compile  — { source, format?: "svg"|"pdf" } → compiled output
- *   POST /measure  — { items: [{ id, typst }], format? } → { id: lineCount }
  *   GET  /health   — 200 OK (alias /healthz for cockpit probe convention)
  */
 
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { compileCacheKey, measureCacheKey, readPositiveInt } = require('./cache');
+const { compileCacheKey, readPositiveInt } = require('./cache');
 
 let compiler = null;
 let renderer = null;
@@ -41,14 +42,12 @@ let activeCompiles = 0;
 let queuedCompiles = 0;
 let sourceSeq = 0;
 
-const FONT_DIR = path.join(__dirname, 'fonts');
+const FONT_DIR = path.join(path.dirname(require.resolve('@corbet-labs/ctypst/package.json')), 'fonts');
 const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES || 1024 * 1024);
 const COMPILE_CACHE_MAX_ENTRIES = readPositiveInt('COMPILE_CACHE_MAX_ENTRIES', 32);
 const COMPILE_CACHE_MAX_BYTES = readPositiveInt('COMPILE_CACHE_MAX_BYTES', 64 * 1024 * 1024);
-const MEASURE_CACHE_MAX_ENTRIES = readPositiveInt('MEASURE_CACHE_MAX_ENTRIES', 128);
 let compileCacheBytes = 0;
 const compileCache = new Map();
-const measureCache = new Map();
 
 class HttpError extends Error {
     constructor(status, message) {
@@ -141,25 +140,6 @@ function setCompileCache(key, entry) {
     }
 }
 
-function getMeasureCache(key) {
-    const hit = measureCache.get(key);
-    if (!hit) return null;
-    measureCache.delete(key);
-    measureCache.set(key, hit);
-    return hit;
-}
-
-function setMeasureCache(key, value) {
-    if (MEASURE_CACHE_MAX_ENTRIES === 0) return;
-    if (measureCache.has(key)) measureCache.delete(key);
-    measureCache.set(key, value);
-    while (measureCache.size > MEASURE_CACHE_MAX_ENTRIES) {
-        const oldestKey = measureCache.keys().next().value;
-        if (!oldestKey) break;
-        measureCache.delete(oldestKey);
-    }
-}
-
 function parseBody(req) {
     return new Promise((resolve, reject) => {
         const chunks = [];
@@ -192,32 +172,6 @@ function parseBody(req) {
             reject(err);
         });
     });
-}
-
-function buildMeasureSource(items, format) {
-    const fontSize = format?.fontSize ?? 10.5;
-    const font = format?.font || 'Archivo';
-    const marginLeft = format?.marginLeft ?? 15;
-    const marginRight = format?.marginRight ?? 15;
-    const pageSize = format?.pageSize || 'a4';
-    const pageWidth = pageSize === 'us-letter' ? '215.9mm' : '210mm';
-
-    const lines = [
-        `#set page(width: ${pageWidth}, margin: (top: 0pt, bottom: 0pt, left: ${marginLeft}mm, right: ${marginRight}mm), height: auto)`,
-        `#set text(font: "${font}", size: ${fontSize}pt, fill: black, top-edge: "cap-height", bottom-edge: "baseline")`,
-        `#set par(leading: 0.6em, justify: false, spacing: 0pt)`,
-        '#set block(above: 0pt, below: 0pt)',
-        '',
-        '#let cv-bullet() = box(width: 10pt)',
-        '',
-        'X',
-    ];
-
-    for (const item of items) {
-        lines.push('', '#pagebreak()', item.typst);
-    }
-
-    return lines.join('\n');
 }
 
 async function handleCompile(req, res) {
@@ -275,51 +229,6 @@ async function handleCompile(req, res) {
     }
 }
 
-async function handleMeasure(req, res) {
-    try {
-        const { items, format } = await parseBody(req);
-        if (!Array.isArray(items)) return send(res, 400, { error: 'Missing "items" array' });
-
-        const source = buildMeasureSource(items, format);
-        const cacheKey = measureCacheKey(source, items);
-        const cached = getMeasureCache(cacheKey);
-        if (cached) return send(res, 200, cached, { 'X-CV-Measure-Cache': 'hit' });
-
-        const measured = await withCompilerLock(async () => {
-            await init();
-            const rulerPath = nextSourcePath('ruler');
-            compiler.addSource(rulerPath, source);
-            const { result } = await compiler.compile({ mainFilePath: rulerPath, format: 'vector' });
-            if (!result) return null;
-
-            const svg = await renderer.renderSvg({ artifactContent: result, format: 'vector' });
-            const heights = [];
-            const re = /height="([^"]+)pt"/g;
-            let m;
-            while ((m = re.exec(svg)) !== null) heights.push(parseFloat(m[1]));
-
-            const refHeight = heights[0] || 1;
-            const out = {};
-            for (let i = 0; i < items.length; i++) {
-                const pageHeight = heights[i + 1];
-                out[items[i].id] = pageHeight !== undefined
-                    ? Math.max(1, Math.round(pageHeight / refHeight))
-                    : 1;
-            }
-            return out;
-        });
-
-        if (!measured) return send(res, 422, { error: 'Ruler compilation failed' });
-        setMeasureCache(cacheKey, measured);
-        send(res, 200, measured, { 'X-CV-Measure-Cache': 'miss' });
-    } catch (e) {
-        if (e instanceof HttpError) {
-            return send(res, e.status, { error: e.message });
-        }
-        send(res, 500, { error: e.message });
-    }
-}
-
 function send(res, status, data, extraHeaders = {}) {
     res.writeHead(status, {
         'Content-Type': 'application/json',
@@ -357,14 +266,10 @@ const server = http.createServer(async (req, res) => {
                 queuedCompiles,
                 cacheEntries: compileCache.size,
                 cacheBytes: compileCacheBytes,
-                measureCacheEntries: measureCache.size,
             });
         }
         if (req.method === 'POST' && req.url === '/compile') {
             return await handleCompile(req, res);
-        }
-        if (req.method === 'POST' && req.url === '/measure') {
-            return await handleMeasure(req, res);
         }
         send(res, 404, { error: 'Not found' });
     } catch (e) {

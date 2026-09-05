@@ -3,7 +3,7 @@
 kind: implementation
 nodes:
   - typst-compile-cache
-summary: "Deterministic cache-key helpers (sha256 over length-prefixed parts). Measure key incorporates item IDs and order because the response object is keyed by those IDs."
+summary: "Deterministic compile cache-key helper (sha256 over length-prefixed parts)."
 symbols:
   - compileCacheKey
   - measureCacheKey
@@ -41,14 +41,7 @@ function compileCacheKey(source, outputFormat) {
     return `${outputFormat}:${normalizedSource.length}:${hashParts([normalizedSource])}`;
 }
 
-function measureCacheKey(source, items) {
-    const normalizedSource = String(source ?? '');
-    const ids = Array.isArray(items) ? items.map((item) => String(item?.id ?? '')) : [];
-    return `measure:${normalizedSource.length}:${ids.length}:${hashParts([normalizedSource, ...ids])}`;
-}
-
 module.exports = {
     compileCacheKey,
-    measureCacheKey,
     readPositiveInt,
 };
