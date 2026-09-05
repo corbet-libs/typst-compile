@@ -1,25 +1,18 @@
 {
-  "lockfileVersion": 1,
+  "lockfileVersion": 2,
   "configVersion": 1,
   "workspaces": {
     "": {
       "name": "typst-compile-service",
       "dependencies": {
-        "@corbet-labs/ctypst": "https://github.com/corbet-labs/ctypst/releases/download/v0.2.0/corbet-labs-ctypst-0.2.0.tgz",
-        "@myriaddreamin/typst-ts-renderer": "^0.6.0",
-        "@myriaddreamin/typst-ts-web-compiler": "^0.6.0",
-        "@myriaddreamin/typst.ts": "^0.6.0",
+        "@corbet-labs/ctypst": "https://github.com/corbet-labs/ctypst/releases/download/v0.3.0/corbet-labs-ctypst-0.3.0.tgz",
       },
     },
   },
   "packages": {
-    "@corbet-labs/ctypst": ["@corbet-labs/ctypst@https://github.com/corbet-labs/ctypst/releases/download/v0.2.0/corbet-labs-ctypst-0.2.0.tgz", { "peerDependencies": { "@myriaddreamin/typst.ts": "0.7.0-rc2" } }, "sha512-DWuSnnW1t+5u4dyQuRPeRuvgNf9lu0DmkPZkHwylP5ImjKiR3Y3EiZ+EksIOjGOpVayKGwD7Eb7k5cfjFbGLFA=="],
+    "@corbet-labs/ctypst": ["@corbet-labs/ctypst@https://github.com/corbet-labs/ctypst/releases/download/v0.3.0/corbet-labs-ctypst-0.3.0.tgz", { "peerDependencies": { "@myriaddreamin/typst.ts": "0.7.0-rc2" } }, "sha512-Q9YUZtvsZ7BSpcBZ6Bd3zTUkafKZCPkpeFgI3yN9L9x9l83pXtDhrGHuFz0Rtc1oksm7wxF1SIECZ5ytDxMrfA=="],
 
-    "@myriaddreamin/typst-ts-renderer": ["@myriaddreamin/typst-ts-renderer@0.6.0", "", {}, "sha512-56Mids4E5Ob6LeEeXDedvmsVnEWnLmc1qeUOeUSruL/zI3S9QXleF/c3Os1FXwJmLuCFbWTEIq8Quh2cXlnxKw=="],
-
-    "@myriaddreamin/typst-ts-web-compiler": ["@myriaddreamin/typst-ts-web-compiler@0.6.0", "", {}, "sha512-P/eIJ5RnfElj0NYzn5PI296t/IwWtgqUyyTMi5Jm5X3V5kZfskkH+LI7mSQe8tEyxwgCvxbxvFe5adinA3K8Gg=="],
-
-    "@myriaddreamin/typst.ts": ["@myriaddreamin/typst.ts@0.6.0", "", { "dependencies": { "idb": "^7.1.1" }, "peerDependencies": { "@myriaddreamin/typst-ts-renderer": "^0.6.0", "@myriaddreamin/typst-ts-web-compiler": "^0.6.0" }, "optionalPeers": ["@myriaddreamin/typst-ts-renderer", "@myriaddreamin/typst-ts-web-compiler"] }, "sha512-IUpetG0NyF2H6eXRm4j+NsbanJHIvyrffHEijqYb6q128sLWQgT1FYJS+h7dtjXmrBEfnIl1mI80DyfDR6kB/w=="],
+    "@myriaddreamin/typst.ts": ["@myriaddreamin/typst.ts@0.7.0-rc2", "", { "dependencies": { "idb": "^7.1.1" }, "peerDependencies": { "@myriaddreamin/typst-ts-renderer": "^0.7.0-rc2", "@myriaddreamin/typst-ts-web-compiler": "^0.7.0-rc2" }, "optionalPeers": ["@myriaddreamin/typst-ts-renderer", "@myriaddreamin/typst-ts-web-compiler"] }, "sha512-VM8JqsRcL3AEJ5cuPBn/YvnGTXK/BRPlxdGB2bR48Of/8OIGaPiunv2QfZBIMBBrtbTygUOtAY9BZvkS1AFqgA=="],
 
     "idb": ["idb@7.1.1", "", {}, "sha512-gchesWBzyvGHRO9W8tzUWFDycow5gwjvFKfyV9FF32Y7F50yZMp7mP+T2mJIWFx49zicqyC4uefHM17o6xKIVQ=="],
   }

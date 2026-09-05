@@ -9,9 +9,6 @@
     "test": "node --test"
   },
   "dependencies": {
-    "@corbet-labs/ctypst": "https://github.com/corbet-labs/ctypst/releases/download/v0.2.0/corbet-labs-ctypst-0.2.0.tgz",
-    "@myriaddreamin/typst-ts-renderer": "^0.6.0",
-    "@myriaddreamin/typst-ts-web-compiler": "^0.6.0",
-    "@myriaddreamin/typst.ts": "^0.6.0"
+    "@corbet-labs/ctypst": "https://github.com/corbet-labs/ctypst/releases/download/v0.3.0/corbet-labs-ctypst-0.3.0.tgz"
   }
 }

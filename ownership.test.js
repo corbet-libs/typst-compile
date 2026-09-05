@@ -26,6 +26,7 @@ const FORBIDDEN = [
     'MEASURE' + '_CACHE',
     '/measure',
     'height="(',
+    '@myriad' + 'dreamin',
 ];
 
 test('measurement endpoint stays deleted', () => {

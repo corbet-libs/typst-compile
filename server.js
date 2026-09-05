@@ -3,7 +3,7 @@
 kind: implementation
 nodes:
   - typst-compile-server
-summary: "Stateful HTTP server keeping Typst WASM warm with fonts preloaded via preloadRemoteFonts. Serialises compiles through compileQueue and tracks active/queued counters for /health. Bounded compileCache configured via env."
+summary: "Stateful HTTP server keeping the ctypst WASM runtime warm with embedded fonts. Serialises compiles through compileQueue and tracks active/queued counters for /health. Bounded compileCache configured via env."
 symbols:
   - init
   - withCompilerLock
@@ -30,19 +30,16 @@ links:
  */
 
 const http = require('http');
-const fs = require('fs');
-const path = require('path');
 const { compileCacheKey, readPositiveInt } = require('./cache');
 
-let compiler = null;
-let renderer = null;
+const { Ctypst } = require('@corbet-labs/ctypst/wasm/nodejs/ctypst.js');
+
+let ct = null;
 let initPromise = null;
 let compileQueue = Promise.resolve();
 let activeCompiles = 0;
 let queuedCompiles = 0;
-let sourceSeq = 0;
 
-const FONT_DIR = path.join(path.dirname(require.resolve('@corbet-labs/ctypst/package.json')), 'fonts');
 const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES || 1024 * 1024);
 const COMPILE_CACHE_MAX_ENTRIES = readPositiveInt('COMPILE_CACHE_MAX_ENTRIES', 32);
 const COMPILE_CACHE_MAX_BYTES = readPositiveInt('COMPILE_CACHE_MAX_BYTES', 64 * 1024 * 1024);
@@ -57,41 +54,19 @@ class HttpError extends Error {
 }
 
 async function init() {
-    if (compiler) return;
+    if (ct) return;
     if (initPromise) { await initPromise; return; }
 
     initPromise = (async () => {
-        console.log('[typst] Loading WASM compiler...');
+        console.log('[typst] Opening ctypst runtime...');
         const start = Date.now();
 
-        const { createTypstCompiler, createTypstRenderer, preloadRemoteFonts } = await import('@myriaddreamin/typst.ts');
+        ct = new Ctypst();
 
-        // Read font files as data URLs (preloadRemoteFonts expects URLs or data URIs)
-        const fontFiles = fs.readdirSync(FONT_DIR).filter(f => f.endsWith('.ttf') || f.endsWith('.woff2'));
-        const fontUrls = fontFiles.map(f => {
-            const data = fs.readFileSync(path.join(FONT_DIR, f));
-            const ext = path.extname(f).slice(1);
-            const mime = ext === 'woff2' ? 'font/woff2' : 'font/ttf';
-            return `data:${mime};base64,${data.toString('base64')}`;
-        });
-
-        compiler = createTypstCompiler();
-        await compiler.init({
-            beforeBuild: [preloadRemoteFonts(fontUrls, { assets: false })],
-        });
-
-        renderer = createTypstRenderer();
-        await renderer.init();
-
-        console.log(`[typst] Ready in ${Date.now() - start}ms, ${fontFiles.length} fonts loaded`);
+        console.log(`[typst] Ready in ${Date.now() - start}ms`);
     })();
 
     await initPromise;
-}
-
-function nextSourcePath(prefix) {
-    sourceSeq = (sourceSeq + 1) % 1000000;
-    return `/${prefix}-${Date.now()}-${sourceSeq}.typ`;
 }
 
 function withCompilerLock(fn) {
@@ -191,28 +166,31 @@ async function handleCompile(req, res) {
 
         const output = await withCompilerLock(async () => {
             await init();
-            const mainPath = nextSourcePath('main');
-            compiler.addSource(mainPath, source);
+            let document;
+            try {
+                document = ct.compile(source, '{}');
+            } catch (e) {
+                return { kind: 'json', status: 422, body: { error: 'Compilation failed', diagnostics: [String(e?.message ?? e)] } };
+            }
 
             if (format === 'pdf') {
-                const { result, diagnostics } = await compiler.compile({ mainFilePath: mainPath, format: 'pdf' });
-                if (!result) {
-                    const errors = diagnostics?.filter(d => d.severity === 'error').map(d => d.message) || ['Compilation failed'];
-                    return { kind: 'json', status: 422, body: { error: 'Compilation failed', diagnostics: errors } };
+                let pdf;
+                try {
+                    pdf = Buffer.from(document.pdf());
+                } catch (e) {
+                    return { kind: 'json', status: 422, body: { error: 'PDF export failed', diagnostics: [String(e?.message ?? e)] } };
                 }
-                const pdf = Buffer.from(result);
                 setCompileCache(cacheKey, { kind: 'pdf', body: pdf, bytes: pdf.byteLength });
                 return { kind: 'pdf', body: pdf, cacheStatus: 'miss' };
             }
 
-            const { result, diagnostics } = await compiler.compile({ mainFilePath: mainPath, format: 'vector' });
-            if (!result) {
-                const errors = diagnostics?.filter(d => d.severity === 'error').map(d => d.message) || ['Compilation failed'];
-                return { kind: 'json', status: 422, body: { error: 'Compilation failed', diagnostics: errors } };
+            let svg;
+            try {
+                svg = document.svg_merged(0);
+            } catch (e) {
+                return { kind: 'json', status: 422, body: { error: 'SVG export failed', diagnostics: [String(e?.message ?? e)] } };
             }
-            const svg = await renderer.renderSvg({ artifactContent: result, format: 'vector' });
-            const pageCount = (svg.match(/<svg[^>]*class="typst-page"/g) || []).length || 1;
-            const body = { svg, pages: pageCount };
+            const body = { svg, pages: document.page_count() };
             setCompileCache(cacheKey, { kind: 'json', body, bytes: estimateJsonCompileBytes(body) });
             return { kind: 'json', status: 200, body, cacheStatus: 'miss' };
         });
@@ -261,7 +239,7 @@ const server = http.createServer(async (req, res) => {
         if (req.method === 'GET' && (req.url === '/health' || req.url === '/healthz')) {
             return send(res, 200, {
                 status: 'ok',
-                compiler: !!compiler,
+                compiler: !!ct,
                 activeCompiles,
                 queuedCompiles,
                 cacheEntries: compileCache.size,
