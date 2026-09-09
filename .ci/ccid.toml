@@ -1,0 +1,11 @@
+schema = 1
+project = "typst-compile"
+[checks.check]
+kind = "javascript"
+manager = "bun"
+scripts = ["check"]
+install = false
+[checks.test]
+kind = "javascript"
+manager = "bun"
+scripts = ["test"]
