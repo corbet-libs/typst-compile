@@ -1,0 +1,23 @@
+# Public check mapping; absent hosted infrastructure or verified tool uses Crow.
+schema = 1
+
+[github]
+repository = "corbet-labs/typst-compile"
+workflow = "selected.yml"
+platform = "linux-x86_64"
+secret_free = true
+free_eligible = true
+checks = ["check"]
+tool_revision = "85e316579ea938c42a4e45d42cb3ac94aa2d9328"
+reusable_workflow_revision = "a0430c3a77c79cb921b0d8d8574903ff7d96945a"
+workflow_sha256 = "fe11ed6d7ed2e18792da7baadf73dda8b38f198906775036852ec271a4aecfce"
+tool_bootstrap_sha256 = "33816c3688229e19361520e4a01d5ec1688d52c12cd0f7f0e508fe5c52b183d8"
+
+[github.resources]
+jobs = 1
+test_threads = 1
+minimum_available_mb = 8192
+timeout = 120
+
+[dependencies]
+files = ["package.json", "bun.lock"]
